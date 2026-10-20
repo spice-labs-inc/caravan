@@ -1,0 +1,26 @@
+pub mod app_table;
+pub mod apps;
+pub mod charts;
+pub mod ci;
+pub mod confirm;
+pub mod filters;
+#[allow(dead_code)]
+pub mod icons;
+pub mod infra;
+pub mod issues;
+pub mod libraries;
+pub mod log_viewer;
+pub mod promote;
+pub mod pull_requests;
+pub mod releases;
+pub mod resources;
+pub mod service_detail;
+pub mod settings;
+pub mod setup;
+pub mod sidebar;
+pub mod theme;
+pub mod toast;
+pub mod topbar_actions;
+pub mod vault;
+pub mod vault_banner;
+pub mod widgets;

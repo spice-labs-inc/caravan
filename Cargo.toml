@@ -1,0 +1,82 @@
+[package]
+name = "caravan"
+version = "0.1.0"
+edition = "2021"
+description = "A desktop GitOps console for Flux-managed Kubernetes environments"
+license = "Apache-2.0"
+repository = "https://github.com/spice-labs-inc/caravan"
+
+[features]
+default = []
+
+[dependencies]
+# UI
+eframe = { version = "0.31", features = [
+    "default_fonts",
+    "glow",
+    "persistence",
+    "wayland",
+    "x11",
+] }
+egui_extras = { version = "0.31", features = ["image", "http"] }
+egui_plot = { version = "0.31" }
+
+# Kubernetes
+kube = { version = "0.98", features = ["runtime", "client", "derive"] }
+k8s-openapi = { version = "0.24", features = ["v1_32"] }
+
+# GitHub
+regex = "1"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Notifications
+notify-rust = "4"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Config
+toml = "0.8"
+directories = "6"
+shellexpand = "3"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# File dialogs
+rfd = "0.15"
+
+# Misc
+anyhow = "1"
+flate2 = "1"
+open = "5"
+base64 = "0.22"
+sha2 = "0.10"
+tar = "0.4"
+urlencoding = "2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+dark-light = "1"
+keyring = "3.6.3"
+zeroize = "1"
+glob = "0.3.3"
+egui_commonmark = { version = "0.20", features = ["better_syntax_highlighting"] }
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"
