@@ -17,6 +17,9 @@ use eframe::egui;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// How long teardown may run after the window closes before the process exits anyway.
+const EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Whether we're showing the setup wizard or the main dashboard.
 enum AppMode {
     Setup(Box<SetupWizard>),
@@ -49,6 +52,7 @@ pub struct CaravanApp {
     vault_page: vault::VaultPage,
     /// Owns the instance lock while this process is the active caravan.
     instance_guard: Option<crate::instance::InstanceGuard>,
+    shutting_down: bool,
 }
 
 impl CaravanApp {
@@ -107,6 +111,7 @@ impl CaravanApp {
             prev_view: None,
             vault_page: vault::VaultPage::default(),
             instance_guard,
+            shutting_down: false,
         }
     }
 
@@ -135,6 +140,23 @@ impl CaravanApp {
         );
 
         tracing::info!("Started pollers after setup");
+    }
+
+    /// Release the instance lock and bound teardown: dropping the runtime
+    /// waits on every blocking task, so a stuck one would otherwise keep a
+    /// windowless process alive.
+    fn begin_shutdown(&mut self) {
+        drop(self.instance_guard.take());
+        if self.shutting_down {
+            return;
+        }
+        self.shutting_down = true;
+        tracing::info!("Window closed, shutting down");
+        std::thread::spawn(|| {
+            std::thread::sleep(EXIT_GRACE);
+            tracing::warn!("Shutdown still running after {:?}, exiting", EXIT_GRACE);
+            std::process::exit(0);
+        });
     }
 
     /// Toast when a Flux sync finishes, regardless of the current view.
@@ -172,6 +194,10 @@ impl CaravanApp {
 
 impl eframe::App for CaravanApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.begin_shutdown();
+        }
+
         if self.first_frame {
             self.first_frame = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(1600.0, 1000.0)));
@@ -428,5 +454,9 @@ impl eframe::App for CaravanApp {
             self.toaster.push("", line);
         }
         self.toaster.show(ctx, mode);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.begin_shutdown();
     }
 }

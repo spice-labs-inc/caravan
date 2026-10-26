@@ -24,7 +24,7 @@ pub fn start_background(
     state: &AppState,
     cache: Option<Arc<Cache>>,
 ) -> Option<InstanceGuard> {
-    let (run_mode, guard) = instance::detect(&crate::config::data_dir());
+    let (run_mode, mut guard) = instance::detect(&crate::config::data_dir());
     match &run_mode {
         RunMode::Active => tracing::info!("Running active: this instance polls GitHub"),
         RunMode::Passive { reason } => {
@@ -32,7 +32,7 @@ pub fn start_background(
         }
     }
     state.set_run_mode(run_mode.clone());
-    if let Some(ref guard) = guard {
+    if let Some(ref mut guard) = guard {
         guard.spawn_heartbeat(runtime);
     }
 
