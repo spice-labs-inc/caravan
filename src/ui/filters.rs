@@ -10,6 +10,15 @@ pub fn env_order() -> Vec<String> {
     crate::models::environments::current().order()
 }
 
+/// Saved environment filter, minus environments the ladder no longer has.
+fn saved_envs_in_ladder(saved: &str, ladder: &[String]) -> HashSet<String> {
+    saved
+        .split(',')
+        .filter(|e| ladder.iter().any(|l| l == e))
+        .map(str::to_string)
+        .collect()
+}
+
 /// Time period for filtering problems and other time-sensitive data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimePeriod {
@@ -92,7 +101,7 @@ impl GlobalFilters {
             self.time_period = TimePeriod::from_str(&period_str);
         }
         if let Ok(Some(envs_str)) = cache.get_meta("filter_visible_envs") {
-            let envs: HashSet<String> = envs_str.split(',').map(|s| s.to_string()).collect();
+            let envs = saved_envs_in_ladder(&envs_str, &env_order());
             if !envs.is_empty() {
                 self.visible_envs = envs;
             }
@@ -277,4 +286,28 @@ pub fn show_env_filter_bar(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ladder() -> Vec<String> {
+        vec!["prod".to_string(), "staging".to_string()]
+    }
+
+    #[test]
+    fn saved_filter_drops_environments_removed_from_the_ladder() {
+        let envs = saved_envs_in_ladder("prod,staging,dev", &ladder());
+        assert_eq!(
+            envs,
+            HashSet::from(["prod".to_string(), "staging".to_string()])
+        );
+    }
+
+    #[test]
+    fn saved_filter_of_only_removed_environments_is_empty() {
+        assert!(saved_envs_in_ladder("dev", &ladder()).is_empty());
+        assert!(saved_envs_in_ladder("", &ladder()).is_empty());
+    }
 }
