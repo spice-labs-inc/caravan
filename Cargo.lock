@@ -726,6 +726,7 @@ dependencies = [
  "k8s-openapi",
  "keyring",
  "kube",
+ "libc",
  "notify-rust",
  "open",
  "regex",

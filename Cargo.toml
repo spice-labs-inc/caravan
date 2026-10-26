@@ -76,6 +76,9 @@ zeroize = "1"
 glob = "0.3.3"
 egui_commonmark = { version = "0.20", features = ["better_syntax_highlighting"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [profile.release]
 strip = true
 lto = true

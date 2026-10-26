@@ -28,6 +28,7 @@ impl RunMode {
 #[derive(Debug)]
 pub struct InstanceGuard {
     path: PathBuf,
+    heartbeat: Option<tokio::task::AbortHandle>,
 }
 
 impl InstanceGuard {
@@ -37,10 +38,10 @@ impl InstanceGuard {
     }
 
     /// Keep the lock fresh so other instances keep seeing us as alive.
-    pub fn spawn_heartbeat(&self, runtime: &tokio::runtime::Runtime) {
+    pub fn spawn_heartbeat(&mut self, runtime: &tokio::runtime::Runtime) {
         let path = self.path.clone();
         let pid = std::process::id();
-        runtime.spawn(async move {
+        let task = runtime.spawn(async move {
             loop {
                 tokio::time::sleep(HEARTBEAT).await;
                 if let Err(e) = std::fs::write(&path, pid.to_string()) {
@@ -48,11 +49,15 @@ impl InstanceGuard {
                 }
             }
         });
+        self.heartbeat = Some(task.abort_handle());
     }
 }
 
 impl Drop for InstanceGuard {
     fn drop(&mut self) {
+        if let Some(heartbeat) = self.heartbeat.take() {
+            heartbeat.abort();
+        }
         if let Ok(content) = std::fs::read_to_string(&self.path) {
             if content.trim() == std::process::id().to_string() {
                 let _ = std::fs::remove_file(&self.path);
@@ -89,7 +94,7 @@ fn detect_lock(data_dir: &Path, our_pid: u32) -> (RunMode, Option<InstanceGuard>
         let holder = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok());
-        if fresh && holder.is_some_and(|pid| pid != our_pid) {
+        if fresh && holder.is_some_and(|pid| pid != our_pid && pid_alive(pid)) {
             return (
                 RunMode::Passive {
                     reason: format!("another caravan is running (pid {})", holder.unwrap_or(0)),
@@ -102,12 +107,40 @@ fn detect_lock(data_dir: &Path, our_pid: u32) -> (RunMode, Option<InstanceGuard>
         tracing::warn!(err = %e, "Failed to create data dir for instance lock");
     }
     match std::fs::write(&path, our_pid.to_string()) {
-        Ok(()) => (RunMode::Active, Some(InstanceGuard { path })),
+        Ok(()) => (
+            RunMode::Active,
+            Some(InstanceGuard {
+                path,
+                heartbeat: None,
+            }),
+        ),
         Err(e) => {
             tracing::warn!(err = %e, "Failed to write instance lock, running active anyway");
             (RunMode::Active, None)
         }
     }
+}
+
+/// Whether a process with this pid exists. A lock left by a killed instance
+/// names a dead pid and must not keep the next launch passive.
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the process exists; nothing is sent.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn pid_alive(_pid: u32) -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -140,12 +173,13 @@ mod tests {
     #[test]
     fn fresh_lock_from_other_pid_means_passive() {
         let dir = scratch("other");
-        std::fs::write(dir.join(LOCK_FILE_NAME), "1234").unwrap();
-        let (mode, guard) = detect_lock(&dir, 4242);
+        let other = std::process::id();
+        std::fs::write(dir.join(LOCK_FILE_NAME), other.to_string()).unwrap();
+        let (mode, guard) = detect_lock(&dir, other + 1);
         assert_eq!(
             mode,
             RunMode::Passive {
-                reason: "another caravan is running (pid 1234)".to_string()
+                reason: format!("another caravan is running (pid {})", other)
             }
         );
         assert!(guard.is_none());
@@ -190,8 +224,41 @@ mod tests {
         assert!(!path.exists());
 
         std::fs::write(&path, "1").unwrap();
-        drop(InstanceGuard { path: path.clone() });
+        drop(InstanceGuard {
+            path: path.clone(),
+            heartbeat: None,
+        });
         assert!(path.exists(), "a lock held by someone else must survive");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    fn dead_pid() -> u32 {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        pid
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pid_alive_tells_live_from_dead() {
+        assert!(pid_alive(std::process::id()));
+        assert!(!pid_alive(dead_pid()));
+        assert!(!pid_alive(0));
+        assert!(!pid_alive(u32::MAX));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fresh_lock_from_dead_pid_is_taken_over() {
+        let dir = scratch("dead");
+        let path = dir.join(LOCK_FILE_NAME);
+        std::fs::write(&path, dead_pid().to_string()).unwrap();
+        let (mode, guard) = detect_lock(&dir, 4242);
+        assert_eq!(mode, RunMode::Active);
+        assert!(guard.is_some());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "4242");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
