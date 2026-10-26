@@ -289,6 +289,9 @@ fn default_branch() -> String {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct PromoteConfig {
+    /// Whether this install promotes at all; false hides the promote button
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// Trigger a Flux sync of the target after a promotion push
     #[serde(default = "default_true")]
     pub sync_after_push: bool,
@@ -303,6 +306,7 @@ pub struct PromoteConfig {
 impl Default for PromoteConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             sync_after_push: true,
             target: None,
             source: None,
@@ -311,9 +315,12 @@ impl Default for PromoteConfig {
 }
 
 impl PromoteConfig {
-    /// (source, target) of the promotion this install performs, if the ladder
-    /// has one.
+    /// (source, target) of the promotion this install performs, if promotion is
+    /// enabled and the ladder has one.
     pub fn pair(&self, envs: &Environments) -> Option<(String, String)> {
+        if !self.enabled {
+            return None;
+        }
         let target = self
             .target
             .clone()
@@ -759,6 +766,48 @@ staging = false
         assert!(!config
             .notifications
             .failures_enabled("staging", &config.environments));
+    }
+
+    #[test]
+    fn promote_disabled_has_no_pair_and_keeps_the_ladder() {
+        let config: Config = toml::from_str(
+            r#"
+[github]
+org = "notes-co"
+
+[[environments]]
+id = "prod"
+reference = true
+
+[[environments]]
+id = "staging"
+upstream = "prod"
+
+[promote]
+enabled = false
+"#,
+        )
+        .unwrap();
+        assert!(!config.promote.enabled);
+        assert_eq!(config.promote.pair(&config.environments), None);
+        assert_eq!(config.environments.upstream_of("staging"), Some("prod"));
+        assert_eq!(config.environments.release_source(), Some("staging"));
+    }
+
+    #[test]
+    fn promote_disabled_ignores_an_explicit_pair() {
+        let config: Config = toml::from_str(
+            "[github]\norg = \"notes-co\"\n\n[promote]\nenabled = false\ntarget = \"dev\"\nsource = \"staging\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.promote.pair(&config.environments), None);
+    }
+
+    #[test]
+    fn promote_enabled_by_default() {
+        let config: Config = toml::from_str("[github]\norg = \"notes-co\"\n").unwrap();
+        assert!(config.promote.enabled);
+        assert!(PromoteConfig::default().enabled);
     }
 
     #[test]
