@@ -1358,7 +1358,8 @@ pub struct ClusterSpec {
 
 /// Render config.toml. `github_section` is written first with its
 /// `app_gitops_remote` set from the fields; the `[notifications]` and
-/// `[polling]` sections of `existing` are kept, the rest is regenerated.
+/// `[polling]` sections of `existing` are kept, so are the `[promote]` keys
+/// other than `sync_after_push`; the rest is regenerated.
 pub fn render_config(
     github_section: &str,
     existing: &str,
@@ -1498,10 +1499,17 @@ pub fn render_config(
     }
     toml.push('\n');
 
-    toml.push_str(&format!(
-        "[promote]\nsync_after_push = {}\n\n",
-        fields.sync_after_push
-    ));
+    let promote =
+        extract_section(existing, "[promote]").unwrap_or_else(|| "[promote]\n".to_string());
+    toml.push_str(
+        set_section_key(
+            &promote,
+            "sync_after_push",
+            &fields.sync_after_push.to_string(),
+        )
+        .trim_end(),
+    );
+    toml.push_str("\n\n");
     toml.push_str(&format!(
         "[openobserve]\nurl = {}\norg = {}\n",
         toml_str(fields.openobserve_url.trim()),
@@ -1682,6 +1690,19 @@ mod tests {
         assert!(config.promote.sync_after_push);
         assert_eq!(config.polling.gitops_interval_secs, 120);
         assert_eq!(config.github.app_gitops_remote, fields.app_gitops_remote);
+    }
+
+    #[test]
+    fn rendered_config_keeps_promote_disabled() {
+        let existing = "[github]\norg = \"o\"\n\n[promote]\nenabled = false\nsync_after_push = true\n\n[openobserve]\norg = \"default\"\n";
+        let mut fields = ConfigFields::fresh();
+        fields.sync_after_push = false;
+        let github = extract_section(existing, "[github]").unwrap();
+        let rendered = render_config(&github, existing, &[], &fields);
+        let config: Config = toml::from_str(&rendered).expect(&rendered);
+        assert!(!config.promote.enabled);
+        assert!(!config.promote.sync_after_push);
+        assert_eq!(config.promote.pair(&config.environments), None);
     }
 
     #[test]

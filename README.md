@@ -124,6 +124,7 @@ hide = []
 # service_names = { "notes-frontend" = "notes-web" }    # repo -> deployed service name
 
 [promote]
+# enabled = false                            # no promote button or modal; default true
 sync_after_push = true
 
 [openobserve]

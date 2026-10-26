@@ -249,6 +249,10 @@ fn promote_button(
     mode: ThemeMode,
     runtime: &tokio::runtime::Runtime,
 ) {
+    let Some((from, to)) = config.promote.pair(&config.environments) else {
+        return;
+    };
+    let (from, to) = (env_label(&from), env_label(&to));
     let mirror_present = mirror_present(ui.ctx(), config);
     let passive = !state.run_mode().is_active();
     let reason = if !mirror_present {
@@ -263,11 +267,6 @@ fn promote_button(
     } else {
         Colors::ORANGE
     };
-    let (from, to) = config
-        .promote
-        .pair(&config.environments)
-        .map(|(f, t)| (env_label(&f), env_label(&t)))
-        .unwrap_or_else(|| ("?".to_string(), "?".to_string()));
     let button = egui::Button::new(
         egui::RichText::new(format!("{from} → {to}"))
             .size(12.0_f32)
